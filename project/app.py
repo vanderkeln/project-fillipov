@@ -4,6 +4,8 @@ import os
 import tempfile
 import zipfile
 import io
+import matplotlib.pyplot as plt
+import numpy as np
 from engine_analyzer import EngineAnalyzer, get_sheet_names
 from deep_translator import GoogleTranslator
 
@@ -67,7 +69,7 @@ TEXTS = {
     "simplex": "Симплекс",
     "num": "Числитель",
     "den": "Знаменатель",
-    "filter": "Фильтрация",
+    "filter": "Параметры фильтрации",
     "poly": "Степень полинома",
     "k_mode": "Режим коэффициента IQR",
     "k_common": "Общий",
@@ -94,6 +96,7 @@ TEXTS = {
     "results_saved": "Результаты сохранены в файл results.xlsx и папку plots",
     "file_not_found": "Файл не найден. Проверьте имя или загрузите файл через загрузчик.",
     "using_sheet": "Используется лист:",
+    "select_param": "Выберите параметр для корреляции",
 }
 
 def _(text):
@@ -203,12 +206,48 @@ if file_path and run_btn:
 
         with tab3:
             if os.path.exists("results.xlsx"):
-                df = pd.read_excel("results.xlsx", sheet_name="Correlations")
+                # Выбор параметра для корреляции
+                df_corr = pd.read_excel("results.xlsx", sheet_name="Correlations")
                 st.subheader(_(TEXTS["corr_pearson"]))
-                st.dataframe(df, use_container_width=True)
-                df2 = pd.read_excel("results.xlsx", sheet_name="PartialCorr")
-                st.subheader(_(TEXTS["corr_partial"]))
-                st.dataframe(df2, use_container_width=True)
+
+                # Получаем список параметров (кроме "Cylinder", "n", "r", "p")
+                param_options = [col for col in df_corr.columns if col not in ["Cylinder", "n", "r", "p"]]
+                if not param_options:
+                    param_options = ["AVG"]  # fallback
+                selected_param = st.selectbox(_(TEXTS["select_param"]), param_options, index=0)
+
+                # Фильтруем таблицу для выбранного параметра
+                if selected_param in df_corr.columns:
+                    df_filtered = df_corr[["Cylinder", selected_param, "n", "r", "p"]]
+                    st.dataframe(df_filtered, use_container_width=True)
+
+                # График scatter для выбранного параметра
+                if hasattr(analyzer, 'corr_scatter_data') and selected_param in analyzer.corr_scatter_data:
+                    data = analyzer.corr_scatter_data[selected_param]
+                    x = data['x']
+                    y = data['y']
+                    if len(x) > 1:
+                        fig, ax = plt.subplots(figsize=(8, 5))
+                        ax.scatter(x, y, alpha=0.7, color='blue')
+                        # Линия регрессии
+                        coeffs = np.polyfit(x, y, 1)
+                        x_line = np.linspace(min(x), max(x), 100)
+                        y_line = coeffs[0] * x_line + coeffs[1]
+                        ax.plot(x_line, y_line, color='red', linestyle='--')
+                        ax.set_xlabel("R/H")
+                        ax.set_ylabel(selected_param)
+                        ax.grid(True, linestyle='--', alpha=0.6)
+                        st.pyplot(fig)
+                    else:
+                        st.info("Недостаточно точек для построения графика.")
+                else:
+                    st.info("Данные для графика недоступны.")
+
+                # Частные корреляции
+                if os.path.exists("results.xlsx"):
+                    df_pcorr = pd.read_excel("results.xlsx", sheet_name="PartialCorr")
+                    st.subheader(_(TEXTS["corr_partial"]))
+                    st.dataframe(df_pcorr, use_container_width=True)
             else:
                 st.warning(_(TEXTS["no_results"]))
 
