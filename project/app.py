@@ -23,12 +23,23 @@ LANGUAGES = {
     "ko": "한국어",
 }
 
+LANGUAGE_NAMES_EN = {
+    "ru": "Russian",
+    "en": "English",
+    "de": "German",
+    "fr": "French",
+    "es": "Spanish",
+    "zh-CN": "Chinese",
+    "ja": "Japanese",
+    "ko": "Korean",
+}
+
 with st.sidebar:
-    st.markdown("### Язык / Language")
+    st.markdown("🌐 Язык")
     lang = st.selectbox(
         "",
         options=list(LANGUAGES.keys()),
-        format_func=lambda x: LANGUAGES[x],
+        format_func=lambda x: translate_text(LANGUAGE_NAMES_EN[x], st.session_state.lang),
         index=0 if st.session_state.lang == "ru" else list(LANGUAGES.keys()).index(st.session_state.lang),
     )
     if lang != st.session_state.lang:
