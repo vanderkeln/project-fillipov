@@ -96,13 +96,18 @@ def evaluate_simplex(expr, values):
 # ============================================================
 
 class EngineAnalyzer:
-    def __init__(self, file_path, sheet_name, numerator, denominator, poly_deg, k_iqr):
+    def __init__(self, file_path, sheet_name, numerator, denominator, poly_deg, k_iqr=None, k_params=None):
+        """
+        k_iqr: общий коэффициент, если None – используются индивидуальные из k_params
+        k_params: словарь {param: k} для каждого параметра
+        """
         self.file_path = file_path
         self.sheet_name = sheet_name
         self.numerator = numerator
         self.denominator = denominator
         self.poly_deg = poly_deg
         self.k_iqr = k_iqr
+        self.k_params = k_params if k_params else {}
         self.df = None
         self.params = []
         self.cylinders = 0
@@ -118,6 +123,11 @@ class EngineAnalyzer:
         self.partial_corr = {}
         self.output_excel = "results.xlsx"
         self.plot_dir = "plots"
+
+    def _get_k_for_param(self, param):
+        if self.k_iqr is not None:
+            return self.k_iqr
+        return self.k_params.get(param, 1.0)
 
     def run(self, log_callback=None):
         try:
@@ -145,11 +155,12 @@ class EngineAnalyzer:
             if log_callback:
                 log_callback("Средние значения вычислены.")
 
-            # Фильтрация
+            # Фильтрация с индивидуальными k
             self.filter_masks = {}
             self.filter_params = {}
             all_good = np.ones(len(self.avg_df), dtype=bool)
             for param in self.params:
+                k = self._get_k_for_param(param)
                 x = self.avg_df['R/H'].values
                 y = self.avg_df[param].values
                 valid = ~np.isnan(y)
@@ -157,15 +168,15 @@ class EngineAnalyzer:
                 y_valid = y[valid]
                 if len(x_valid) < 3:
                     mask = np.ones(len(y), dtype=bool)
-                    self.filter_params[param] = {'func': None, 'q1': None, 'q3': None, 'iqr': None}
+                    self.filter_params[param] = {'func': None, 'q1': None, 'q3': None, 'iqr': None, 'k': k}
                 else:
-                    mask, func, q1, q3, iqr, _, _ = filter_outliers(x_valid, y_valid, self.poly_deg, self.k_iqr)
+                    mask, func, q1, q3, iqr, _, _ = filter_outliers(x_valid, y_valid, self.poly_deg, k)
                     self.filter_params[param] = {
                         'func': func,
                         'q1': q1,
                         'q3': q3,
                         'iqr': iqr,
-                        'k': self.k_iqr,
+                        'k': k,
                         'x': x_valid,
                         'y': y_valid
                     }
@@ -325,11 +336,8 @@ class EngineAnalyzer:
             y = self.avg_df[param].values
             mask = self.filter_masks.get(param, np.ones(len(x), dtype=bool))
             fig, ax = plt.subplots(figsize=(10, 6))
-            # Нормальные точки – синие
             ax.scatter(x[mask], y[mask], color='blue', s=60, alpha=0.7, label=f'Нормальные (n={np.sum(mask)})')
-            # Выбросы – красные
             ax.scatter(x[~mask], y[~mask], color='red', s=80, alpha=0.8, label=f'Выбросы (n={np.sum(~mask)})')
-            # Если есть параметры фильтрации, рисуем границы
             params = self.filter_params.get(param)
             if params is not None and params['func'] is not None:
                 func = params['func']
@@ -346,7 +354,7 @@ class EngineAnalyzer:
                 ax.plot(x_sorted, upper, 'r--', linewidth=1.5, label='Верхняя граница')
             ax.set_xlabel('R/H', fontsize=12)
             ax.set_ylabel(param, fontsize=12)
-            ax.set_title(f'Фильтрация {param} (k={self.k_iqr})', fontsize=14)
+            ax.set_title(f'Фильтрация {param} (k={self._get_k_for_param(param)})', fontsize=14)
             ax.grid(True, linestyle='--', alpha=0.6)
             ax.legend(fontsize=10)
             plt.tight_layout()
