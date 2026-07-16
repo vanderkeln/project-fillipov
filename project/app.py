@@ -205,10 +205,13 @@ if file_path and run_btn:
         st.error(_(TEXTS["error"]))
 
 # ------------------------------------------------------------------
-# Функция для построения графика с доверительным интервалом
+# Функция для построения графика с интервалом предсказания (границы для точек)
 # ------------------------------------------------------------------
-def plot_with_ci(x, y, label, xlabel="R/H", ylabel="Y", color='blue'):
-    """Строит scatter plot с линией регрессии и 95% доверительным интервалом."""
+def plot_with_prediction_interval(x, y, label, xlabel="R/H", ylabel="Y", color='blue', alpha=0.05):
+    """
+    Строит scatter plot, линию регрессии и 95% интервал предсказания.
+    Интервал предсказания показывает, где должны находиться отдельные точки.
+    """
     if len(x) < 2:
         return None
 
@@ -220,14 +223,10 @@ def plot_with_ci(x, y, label, xlabel="R/H", ylabel="Y", color='blue'):
     n = len(x)
     residuals = y - y_pred
     ss_res = np.sum(residuals**2)
-    ss_total = np.sum((y - np.mean(y))**2)
-    r2 = 1 - ss_res / ss_total if ss_total != 0 else 0
+    se_reg = np.sqrt(ss_res / (n - 2))  # стандартная ошибка регрессии
 
-    # Стандартная ошибка регрессии
-    se_reg = np.sqrt(ss_res / (n - 2))
-
-    # t-критерий для 95% доверительного интервала
-    t_val = t.ppf(0.975, df=n-2)
+    # t-критическое для заданного уровня значимости
+    t_val = t.ppf(1 - alpha/2, df=n-2)
 
     # Построение
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -238,13 +237,18 @@ def plot_with_ci(x, y, label, xlabel="R/H", ylabel="Y", color='blue'):
     y_line = slope * x_line + intercept
     ax.plot(x_line, y_line, color='red', linestyle='--', label='Линия регрессии')
 
-    # Доверительный интервал (заполненная область)
+    # Интервал предсказания (границы для точек)
     mean_x = np.mean(x)
-    # Стандартная ошибка предсказания для среднего
-    se_pred = se_reg * np.sqrt(1/n + (x_line - mean_x)**2 / np.sum((x - mean_x)**2))
+    # Для интервала предсказания добавляем 1 под корнем (учёт разброса отдельной точки)
+    se_pred = se_reg * np.sqrt(1 + 1/n + (x_line - mean_x)**2 / np.sum((x - mean_x)**2))
     ci_lower = y_line - t_val * se_pred
     ci_upper = y_line + t_val * se_pred
-    ax.fill_between(x_line, ci_lower, ci_upper, color='gray', alpha=0.3, label='95% доверительный интервал')
+
+    # Закрашенная область (интервал предсказания)
+    ax.fill_between(x_line, ci_lower, ci_upper, color='gray', alpha=0.2, label='95% интервал предсказания')
+    # Границы (пунктирные линии)
+    ax.plot(x_line, ci_lower, color='gray', linestyle=':', linewidth=1.5, alpha=0.7)
+    ax.plot(x_line, ci_upper, color='gray', linestyle=':', linewidth=1.5, alpha=0.7)
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
@@ -301,13 +305,13 @@ if st.session_state.analysis_done and os.path.exists("results.xlsx"):
                     })
                     st.dataframe(df_show, use_container_width=True)
 
-                    # График с доверительным интервалом
+                    # График с интервалом предсказания
                     if selected_param in scatter_dict:
                         data = scatter_dict[selected_param]
                         x = data['x']
                         y = data['y']
                         if len(x) > 1:
-                            fig = plot_with_ci(x, y, label=selected_param, xlabel="R/H", ylabel=selected_param, color='blue')
+                            fig = plot_with_prediction_interval(x, y, label=selected_param, xlabel="R/H", ylabel=selected_param, color='blue')
                             if fig:
                                 st.pyplot(fig)
                         else:
@@ -343,8 +347,8 @@ if st.session_state.analysis_done and os.path.exists("results.xlsx"):
                             })
                             st.dataframe(df_custom, use_container_width=True)
 
-                            # График с доверительным интервалом
-                            fig = plot_with_ci(x_rh, custom_y, label="Пользовательские данные", xlabel="R/H", ylabel="Пользовательский Y", color='green')
+                            # График с интервалом предсказания
+                            fig = plot_with_prediction_interval(x_rh, custom_y, label="Пользовательские данные", xlabel="R/H", ylabel="Пользовательский Y", color='green')
                             if fig:
                                 st.pyplot(fig)
                             st.caption(f"Коэффициент корреляции **r = {r:.4f}**, p‑value = **{p:.4e}**")
