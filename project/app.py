@@ -107,11 +107,17 @@ TEXTS = {
     "data_clean": "после фильтрации",
     "no_corr_data": "Нет данных для корреляционного анализа.",
     "not_enough_points": "Недостаточно точек для построения графика.",
-    "custom_y": "Пользовательский параметр (введите значения Y через запятую или пробел)",
-    "apply_custom": "Применить",
+    "custom_y": "Введите значения Y через запятую или пробел",
+    "custom_y_placeholder": "Например: 12.5, 14.2, 13.8, 15.1, ...",
+    "apply_custom": "Применить пользовательские данные",
     "custom_corr_title": "Корреляция для пользовательских данных",
     "custom_data_len": "Количество введённых значений:",
-    "custom_data_mismatch": "Количество введённых значений не совпадает с количеством точек X ({}).",
+    "custom_data_mismatch": "Количество введённых значений ({}) не совпадает с количеством точек X ({}).",
+    "data_not_found": "Данные для параметра не найдены.",
+    "corr_coeff_label": "Коэффициент корреляции r = {:.4f}, p-value = {:.4e}",
+    "enter_at_least_one": "Введите хотя бы одно число.",
+    "not_enough_points_manual": "Недостаточно точек для ручного ввода (нужно минимум 2 точки).",
+    "manual_data": "Ручной ввод данных",
 }
 
 def _(text):
@@ -157,7 +163,6 @@ with st.sidebar:
 
     run_btn = st.button(_(TEXTS["run"]), type="primary", use_container_width=True)
 
-# Определяем путь к файлу
 file_path = None
 if uploaded_file is not None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
@@ -169,7 +174,6 @@ elif file_name_input.strip() != "":
     else:
         st.error(_(TEXTS["file_not_found"]))
 
-# Запуск анализа
 if file_path and run_btn:
     log_container = st.container()
     log_placeholder = log_container.empty()
@@ -204,59 +208,35 @@ if file_path and run_btn:
     else:
         st.error(_(TEXTS["error"]))
 
-# ------------------------------------------------------------------
-# Функция для построения графика с интервалом предсказания (границы для точек)
-# ------------------------------------------------------------------
 def plot_with_prediction_interval(x, y, label, xlabel="R/H", ylabel="Y", color='blue', alpha=0.05):
-    """
-    Строит scatter plot, линию регрессии и 95% интервал предсказания.
-    Интервал предсказания показывает, где должны находиться отдельные точки.
-    """
     if len(x) < 2:
         return None
-
-    # Линейная регрессия
     coeffs = np.polyfit(x, y, 1)
     slope, intercept = coeffs
     y_pred = slope * x + intercept
-
     n = len(x)
     residuals = y - y_pred
     ss_res = np.sum(residuals**2)
-    se_reg = np.sqrt(ss_res / (n - 2))  # стандартная ошибка регрессии
-
-    # t-критическое для заданного уровня значимости
+    se_reg = np.sqrt(ss_res / (n - 2))
     t_val = t.ppf(1 - alpha/2, df=n-2)
-
-    # Построение
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.scatter(x, y, alpha=0.7, color=color, label=label)
-
-    # Линия регрессии
     x_line = np.linspace(min(x), max(x), 100)
     y_line = slope * x_line + intercept
     ax.plot(x_line, y_line, color='red', linestyle='--', label='Линия регрессии')
-
-    # Интервал предсказания (границы для точек)
     mean_x = np.mean(x)
-    # Для интервала предсказания добавляем 1 под корнем (учёт разброса отдельной точки)
     se_pred = se_reg * np.sqrt(1 + 1/n + (x_line - mean_x)**2 / np.sum((x - mean_x)**2))
     ci_lower = y_line - t_val * se_pred
     ci_upper = y_line + t_val * se_pred
-
-    # Закрашенная область (интервал предсказания)
     ax.fill_between(x_line, ci_lower, ci_upper, color='gray', alpha=0.2, label='95% интервал предсказания')
-    # Границы (пунктирные линии)
     ax.plot(x_line, ci_lower, color='gray', linestyle=':', linewidth=1.5, alpha=0.7)
     ax.plot(x_line, ci_upper, color='gray', linestyle=':', linewidth=1.5, alpha=0.7)
-
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.grid(True, linestyle='--', alpha=0.6)
     ax.legend()
     return fig
 
-# Отображение результатов (если анализ выполнен и есть файлы)
 if st.session_state.analysis_done and os.path.exists("results.xlsx"):
     analyzer = st.session_state.analyzer
     tab1, tab2, tab3, tab4 = st.tabs(
@@ -304,8 +284,6 @@ if st.session_state.analysis_done and os.path.exists("results.xlsx"):
                         "p-value": [res["p"]]
                     })
                     st.dataframe(df_show, use_container_width=True)
-
-                    # График с интервалом предсказания
                     if selected_param in scatter_dict:
                         data = scatter_dict[selected_param]
                         x = data['x']
@@ -317,18 +295,17 @@ if st.session_state.analysis_done and os.path.exists("results.xlsx"):
                         else:
                             st.info(_(TEXTS["not_enough_points"]))
                 else:
-                    st.info("Данные для параметра не найдены.")
+                    st.info(_(TEXTS["data_not_found"]))
 
-            # ---- Ручной ввод данных ----
-            st.subheader("📊 Ручной ввод данных")
+            st.subheader(_(TEXTS["manual_data"]))
             if x_rh is not None and len(x_rh) > 1:
-                st.caption(f"Количество точек X (R/H): **{len(x_rh)}**")
+                st.caption(f"{_(TEXTS['custom_data_len'])} **{len(x_rh)}**")
                 custom_y_str = st.text_area(
-                    "Введите значения Y через запятую или пробел",
-                    placeholder="Например: 12.5, 14.2, 13.8, 15.1, ...",
+                    _(TEXTS["custom_y"]),
+                    placeholder=_(TEXTS["custom_y_placeholder"]),
                     height=100
                 )
-                if st.button("Применить пользовательские данные"):
+                if st.button(_(TEXTS["apply_custom"])):
                     if custom_y_str.strip():
                         try:
                             parts = custom_y_str.replace(',', ' ').split()
@@ -346,22 +323,19 @@ if st.session_state.analysis_done and os.path.exists("results.xlsx"):
                                 "p-value": [p]
                             })
                             st.dataframe(df_custom, use_container_width=True)
-
-                            # График с интервалом предсказания
                             fig = plot_with_prediction_interval(x_rh, custom_y, label="Пользовательские данные", xlabel="R/H", ylabel="Пользовательский Y", color='green')
                             if fig:
                                 st.pyplot(fig)
-                            st.caption(f"Коэффициент корреляции **r = {r:.4f}**, p‑value = **{p:.4e}**")
+                            st.caption(_(TEXTS["corr_coeff_label"]).format(r, p))
                         else:
-                            st.error(f"Количество введённых значений ({len(custom_y)}) не совпадает с количеством точек X ({len(x_rh)}).")
+                            st.error(_(TEXTS["custom_data_mismatch"]).format(len(custom_y), len(x_rh)))
                     else:
-                        st.warning("Введите хотя бы одно число.")
+                        st.warning(_(TEXTS["enter_at_least_one"]))
             else:
-                st.info("Недостаточно точек для ручного ввода (нужно минимум 2 точки).")
+                st.info(_(TEXTS["not_enough_points_manual"]))
         else:
             st.info(_(TEXTS["no_corr_data"]))
 
-        # Частные корреляции
         if os.path.exists("results.xlsx"):
             df_pcorr = pd.read_excel("results.xlsx", sheet_name="PartialCorr")
             st.subheader(_(TEXTS["corr_partial"]))
@@ -397,19 +371,15 @@ if st.session_state.analysis_done and os.path.exists("results.xlsx"):
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-    # Удаление временного файла, если он был создан
     if uploaded_file is not None and file_path and os.path.exists(file_path):
         os.unlink(file_path)
 
-# Если файл загружен, но анализ не запущен
 elif file_path and not run_btn and not st.session_state.analysis_done:
     st.info(_(TEXTS["wait_run"]))
 
-# Если файл не загружен
 elif not file_path and not run_btn and not st.session_state.analysis_done:
     st.info(_(TEXTS["wait_file"]))
 
-# Отображение имени загруженного файла в сайдбаре
 if uploaded_file:
     st.sidebar.success(f"{_(TEXTS['file_loaded'])} {uploaded_file.name}")
 elif file_name_input.strip() != "" and os.path.exists(file_name_input.strip()):
