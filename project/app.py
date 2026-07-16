@@ -6,6 +6,7 @@ import zipfile
 import io
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.stats import pearsonr  # <-- добавлен импорт
 from engine_analyzer import EngineAnalyzer, get_sheet_names
 from deep_translator import GoogleTranslator
 
@@ -273,23 +274,25 @@ if st.session_state.analysis_done and os.path.exists("results.xlsx"):
                         st.info(_(TEXTS["not_enough_points"]))
 
             # ---- Пользовательский ввод данных ----
-            st.subheader("Ручной ввод данных")
+            st.subheader("📊 Ручной ввод данных")
             if x_rh is not None and len(x_rh) > 1:
-                st.caption(f"Количество точек X (R/H): {len(x_rh)}")
-                custom_y_str = st.text_area(_(TEXTS["custom_y"]), placeholder="Введите числа через запятую или пробел, например: 10, 20, 30")
-                if st.button(_(TEXTS["apply_custom"])):
+                st.caption(f"Количество точек X (R/H): **{len(x_rh)}**")
+                custom_y_str = st.text_area(
+                    _("Введите значения Y через запятую или пробел"),
+                    placeholder="Например: 12.5, 14.2, 13.8, 15.1, ...",
+                    height=100
+                )
+                if st.button(_("Применить пользовательские данные")):
                     if custom_y_str.strip():
                         try:
-                            # Парсим числа
-                            custom_y = [float(v.strip()) for v in custom_y_str.replace(',', ' ').split() if v.strip()]
+                            parts = custom_y_str.replace(',', ' ').split()
+                            custom_y = [float(v.strip()) for v in parts if v.strip()]
                         except Exception as e:
                             st.error(f"Ошибка парсинга: {e}")
                             custom_y = []
                         if len(custom_y) == len(x_rh):
-                            # Вычисляем корреляцию
                             r, p = pearsonr(x_rh, custom_y)
                             n = len(custom_y)
-                            # Показываем результат
                             df_custom = pd.DataFrame({
                                 "Параметр": ["Пользовательский"],
                                 "n": [n],
@@ -297,24 +300,24 @@ if st.session_state.analysis_done and os.path.exists("results.xlsx"):
                                 "p-value": [p]
                             })
                             st.dataframe(df_custom, use_container_width=True)
-                            # График
                             fig, ax = plt.subplots(figsize=(8, 5))
-                            ax.scatter(x_rh, custom_y, alpha=0.7, color='green')
+                            ax.scatter(x_rh, custom_y, alpha=0.7, color='green', label='Пользовательские данные')
                             coeffs = np.polyfit(x_rh, custom_y, 1)
                             x_line = np.linspace(min(x_rh), max(x_rh), 100)
                             y_line = coeffs[0] * x_line + coeffs[1]
-                            ax.plot(x_line, y_line, color='red', linestyle='--')
+                            ax.plot(x_line, y_line, color='red', linestyle='--', label='Линия регрессии')
                             ax.set_xlabel("R/H")
                             ax.set_ylabel("Пользовательский Y")
                             ax.grid(True, linestyle='--', alpha=0.6)
+                            ax.legend()
                             st.pyplot(fig)
-                            st.caption(f"Коэффициент корреляции r = {r:.4f}, p = {p:.4e}")
+                            st.caption(f"Коэффициент корреляции **r = {r:.4f}**, p‑value = **{p:.4e}**")
                         else:
-                            st.error(_(TEXTS["custom_data_mismatch"]).format(len(x_rh)))
+                            st.error(f"Количество введённых значений ({len(custom_y)}) не совпадает с количеством точек X ({len(x_rh)}).")
                     else:
-                        st.warning("Введите данные.")
+                        st.warning("Введите хотя бы одно число.")
             else:
-                st.info("Недостаточно точек для ручного ввода.")
+                st.info("Недостаточно точек для ручного ввода (нужно минимум 2 точки).")
         else:
             st.info(_(TEXTS["no_corr_data"]))
 
