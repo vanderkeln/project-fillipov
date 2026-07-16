@@ -6,7 +6,7 @@ import zipfile
 import io
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import pearsonr  # <-- добавлен импорт
+from scipy.stats import pearsonr, t
 from engine_analyzer import EngineAnalyzer, get_sheet_names
 from deep_translator import GoogleTranslator
 
@@ -204,6 +204,54 @@ if file_path and run_btn:
     else:
         st.error(_(TEXTS["error"]))
 
+# ------------------------------------------------------------------
+# Функция для построения графика с доверительным интервалом
+# ------------------------------------------------------------------
+def plot_with_ci(x, y, label, xlabel="R/H", ylabel="Y", color='blue'):
+    """Строит scatter plot с линией регрессии и 95% доверительным интервалом."""
+    if len(x) < 2:
+        return None
+
+    # Линейная регрессия
+    coeffs = np.polyfit(x, y, 1)
+    slope, intercept = coeffs
+    y_pred = slope * x + intercept
+
+    n = len(x)
+    residuals = y - y_pred
+    ss_res = np.sum(residuals**2)
+    ss_total = np.sum((y - np.mean(y))**2)
+    r2 = 1 - ss_res / ss_total if ss_total != 0 else 0
+
+    # Стандартная ошибка регрессии
+    se_reg = np.sqrt(ss_res / (n - 2))
+
+    # t-критерий для 95% доверительного интервала
+    t_val = t.ppf(0.975, df=n-2)
+
+    # Построение
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.scatter(x, y, alpha=0.7, color=color, label=label)
+
+    # Линия регрессии
+    x_line = np.linspace(min(x), max(x), 100)
+    y_line = slope * x_line + intercept
+    ax.plot(x_line, y_line, color='red', linestyle='--', label='Линия регрессии')
+
+    # Доверительный интервал (заполненная область)
+    mean_x = np.mean(x)
+    # Стандартная ошибка предсказания для среднего
+    se_pred = se_reg * np.sqrt(1/n + (x_line - mean_x)**2 / np.sum((x - mean_x)**2))
+    ci_lower = y_line - t_val * se_pred
+    ci_upper = y_line + t_val * se_pred
+    ax.fill_between(x_line, ci_lower, ci_upper, color='gray', alpha=0.3, label='95% доверительный интервал')
+
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.grid(True, linestyle='--', alpha=0.6)
+    ax.legend()
+    return fig
+
 # Отображение результатов (если анализ выполнен и есть файлы)
 if st.session_state.analysis_done and os.path.exists("results.xlsx"):
     analyzer = st.session_state.analyzer
@@ -252,37 +300,31 @@ if st.session_state.analysis_done and os.path.exists("results.xlsx"):
                         "p-value": [res["p"]]
                     })
                     st.dataframe(df_show, use_container_width=True)
+
+                    # График с доверительным интервалом
+                    if selected_param in scatter_dict:
+                        data = scatter_dict[selected_param]
+                        x = data['x']
+                        y = data['y']
+                        if len(x) > 1:
+                            fig = plot_with_ci(x, y, label=selected_param, xlabel="R/H", ylabel=selected_param, color='blue')
+                            if fig:
+                                st.pyplot(fig)
+                        else:
+                            st.info(_(TEXTS["not_enough_points"]))
                 else:
                     st.info("Данные для параметра не найдены.")
 
-                if selected_param in scatter_dict:
-                    data = scatter_dict[selected_param]
-                    x = data['x']
-                    y = data['y']
-                    if len(x) > 1:
-                        fig, ax = plt.subplots(figsize=(8, 5))
-                        ax.scatter(x, y, alpha=0.7, color='blue')
-                        coeffs = np.polyfit(x, y, 1)
-                        x_line = np.linspace(min(x), max(x), 100)
-                        y_line = coeffs[0] * x_line + coeffs[1]
-                        ax.plot(x_line, y_line, color='red', linestyle='--')
-                        ax.set_xlabel("R/H")
-                        ax.set_ylabel(selected_param)
-                        ax.grid(True, linestyle='--', alpha=0.6)
-                        st.pyplot(fig)
-                    else:
-                        st.info(_(TEXTS["not_enough_points"]))
-
-            # ---- Пользовательский ввод данных ----
+            # ---- Ручной ввод данных ----
             st.subheader("📊 Ручной ввод данных")
             if x_rh is not None and len(x_rh) > 1:
                 st.caption(f"Количество точек X (R/H): **{len(x_rh)}**")
                 custom_y_str = st.text_area(
-                    _("Введите значения Y через запятую или пробел"),
+                    "Введите значения Y через запятую или пробел",
                     placeholder="Например: 12.5, 14.2, 13.8, 15.1, ...",
                     height=100
                 )
-                if st.button(_("Применить пользовательские данные")):
+                if st.button("Применить пользовательские данные"):
                     if custom_y_str.strip():
                         try:
                             parts = custom_y_str.replace(',', ' ').split()
@@ -300,17 +342,11 @@ if st.session_state.analysis_done and os.path.exists("results.xlsx"):
                                 "p-value": [p]
                             })
                             st.dataframe(df_custom, use_container_width=True)
-                            fig, ax = plt.subplots(figsize=(8, 5))
-                            ax.scatter(x_rh, custom_y, alpha=0.7, color='green', label='Пользовательские данные')
-                            coeffs = np.polyfit(x_rh, custom_y, 1)
-                            x_line = np.linspace(min(x_rh), max(x_rh), 100)
-                            y_line = coeffs[0] * x_line + coeffs[1]
-                            ax.plot(x_line, y_line, color='red', linestyle='--', label='Линия регрессии')
-                            ax.set_xlabel("R/H")
-                            ax.set_ylabel("Пользовательский Y")
-                            ax.grid(True, linestyle='--', alpha=0.6)
-                            ax.legend()
-                            st.pyplot(fig)
+
+                            # График с доверительным интервалом
+                            fig = plot_with_ci(x_rh, custom_y, label="Пользовательские данные", xlabel="R/H", ylabel="Пользовательский Y", color='green')
+                            if fig:
+                                st.pyplot(fig)
                             st.caption(f"Коэффициент корреляции **r = {r:.4f}**, p‑value = **{p:.4e}**")
                         else:
                             st.error(f"Количество введённых значений ({len(custom_y)}) не совпадает с количеством точек X ({len(x_rh)}).")
