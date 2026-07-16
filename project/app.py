@@ -98,7 +98,7 @@ TEXTS = {
     "using_sheet": "Используется лист:",
     "select_param": "Выберите параметр для корреляции",
     "no_corr_data": "Нет данных для корреляционного анализа.",
-    "param_not_found": "Данные для параметра '{param}' не найдены в таблице корреляций.",
+    "param_not_found": "Данные для параметра '{param}' не найдены.",
     "not_enough_points": "Недостаточно точек для построения графика.",
     "scatter_data_unavailable": "Данные для графика недоступны.",
 }
@@ -209,31 +209,34 @@ if file_path and run_btn:
                 st.warning(_(TEXTS["no_results"]))
 
         with tab3:
-            if os.path.exists("results.xlsx"):
-                df_corr = pd.read_excel("results.xlsx", sheet_name="Correlations")
-                st.subheader(_(TEXTS["corr_pearson"]))
+            # Отображение корреляций
+            st.subheader(_(TEXTS["corr_pearson"]))
 
-                # Список параметров из analyzer.corr_params (если есть)
-                param_options = []
-                if hasattr(analyzer, 'corr_params') and analyzer.corr_params:
-                    param_options = list(analyzer.corr_params.keys())
-                else:
-                    # fallback: из колонок df_corr, исключая служебные
-                    param_options = [col for col in df_corr.columns if col not in ["Cylinder", "n", "r", "p"]]
+            # Используем данные из analyzer.corr_params (если есть)
+            if hasattr(analyzer, 'corr_params') and analyzer.corr_params:
+                # Создаём таблицу для отображения
+                corr_data = []
+                for param, res in analyzer.corr_params.items():
+                    corr_data.append({
+                        "Параметр": param,
+                        "n": res["n"],
+                        "r": res["r"],
+                        "p": res["p"],
+                    })
+                df_corr_display = pd.DataFrame(corr_data)
+                param_options = list(analyzer.corr_params.keys())
 
-                if not param_options:
-                    st.info(_(TEXTS["no_corr_data"]))
-                else:
+                if param_options:
                     selected_param = st.selectbox(_(TEXTS["select_param"]), param_options, index=0)
 
-                    # Проверяем наличие столбца
-                    if selected_param in df_corr.columns:
-                        df_filtered = df_corr[["Cylinder", selected_param, "n", "r", "p"]]
-                        st.dataframe(df_filtered, use_container_width=True)
+                    # Отображаем строку для выбранного параметра
+                    row = df_corr_display[df_corr_display["Параметр"] == selected_param]
+                    if not row.empty:
+                        st.dataframe(row, use_container_width=True)
                     else:
                         st.info(_(TEXTS["param_not_found"]).format(param=selected_param))
 
-                    # График scatter для выбранного параметра
+                    # График scatter
                     if hasattr(analyzer, 'corr_scatter_data') and selected_param in analyzer.corr_scatter_data:
                         data = analyzer.corr_scatter_data[selected_param]
                         x = data['x']
@@ -253,14 +256,31 @@ if file_path and run_btn:
                             st.info(_(TEXTS["not_enough_points"]))
                     else:
                         st.info(_(TEXTS["scatter_data_unavailable"]))
-
-                # Частные корреляции
+                else:
+                    st.info(_(TEXTS["no_corr_data"]))
+            else:
+                # Если analyzer.corr_params нет, пробуем загрузить из Excel
                 if os.path.exists("results.xlsx"):
-                    df_pcorr = pd.read_excel("results.xlsx", sheet_name="PartialCorr")
+                    df_corr = pd.read_excel("results.xlsx", sheet_name="Correlations")
+                    param_options = [col for col in df_corr.columns if col not in ["Cylinder", "n", "r", "p"]]
+                    if param_options:
+                        selected_param = st.selectbox(_(TEXTS["select_param"]), param_options, index=0)
+                        if selected_param in df_corr.columns:
+                            df_filtered = df_corr[["Cylinder", selected_param, "n", "r", "p"]]
+                            st.dataframe(df_filtered, use_container_width=True)
+                        else:
+                            st.info(_(TEXTS["param_not_found"]).format(param=selected_param))
+                    else:
+                        st.info(_(TEXTS["no_corr_data"]))
+                else:
+                    st.warning(_(TEXTS["no_results"]))
+
+            # Частные корреляции
+            if os.path.exists("results.xlsx"):
+                df_pcorr = pd.read_excel("results.xlsx", sheet_name="PartialCorr")
+                if not df_pcorr.empty:
                     st.subheader(_(TEXTS["corr_partial"]))
                     st.dataframe(df_pcorr, use_container_width=True)
-            else:
-                st.warning(_(TEXTS["no_results"]))
 
         with tab4:
             if os.path.exists("plots"):
