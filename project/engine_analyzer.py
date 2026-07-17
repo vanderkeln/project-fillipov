@@ -142,7 +142,6 @@ def filter_outliers_vba(x, y, deg, k):
     q3 = percentile_vba(sorted_res, 0.75)
     iqr = q3 - q1
 
-    # Границы для маски (относительно остатков) – симметричные
     lower_delta = -k * iqr
     upper_delta = k * iqr
 
