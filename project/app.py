@@ -6,7 +6,7 @@ import zipfile
 import io
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import pearsonr, t
+from scipy.stats import pearsonr
 from engine_analyzer import EngineAnalyzer, get_sheet_names
 from deep_translator import GoogleTranslator
 
@@ -92,7 +92,6 @@ TEXTS = {
     "tab3": "Корреляции",
     "tab4": "Графики",
     "corr_pearson": "Корреляции Пирсона",
-    "corr_partial": "Частные корреляции (контроль по Index)",
     "download_results": "Скачать результаты (Excel)",
     "download_plots": "Скачать все графики (ZIP)",
     "no_results": "Файл результатов не найден.",
@@ -105,15 +104,10 @@ TEXTS = {
     "data_all": "все",
     "data_clean": "после фильтрации",
     "no_corr_data": "Нет данных для корреляционного анализа.",
-    "select_param": "Выберите параметр для корреляции",
     "parameter": "Параметр",
     "n_label": "n",
     "r_label": "r",
     "p_value_label": "p-value",
-    "regression_line": "Линия регрессии",
-    "prediction_interval": "95% интервал предсказания",
-    "normal_points": "Нормальные",
-    "outlier_points": "Выбросы",
 }
 
 def _(text):
@@ -204,61 +198,6 @@ if file_path and run_btn:
     else:
         st.error(_(TEXTS["error"]))
 
-# ---------- Функция для построения графика корреляции с границами ----------
-def plot_correlation_with_bounds(x, y, xlabel, ylabel, alpha=0.05):
-    """
-    Строит scatter plot, линию регрессии, интервал предсказания,
-    точки за пределами интервала окрашивает красным.
-    """
-    if len(x) < 2:
-        return None
-
-    # Линейная регрессия
-    coeffs = np.polyfit(x, y, 1)
-    slope, intercept = coeffs
-    y_pred = slope * x + intercept
-
-    n = len(x)
-    residuals = y - y_pred
-    ss_res = np.sum(residuals**2)
-    se_reg = np.sqrt(ss_res / (n - 2))
-    t_val = t.ppf(1 - alpha/2, df=n-2)
-
-    # Интервал предсказания
-    mean_x = np.mean(x)
-    se_pred = se_reg * np.sqrt(1 + 1/n + (x - mean_x)**2 / np.sum((x - mean_x)**2))
-    ci_lower = y_pred - t_val * se_pred
-    ci_upper = y_pred + t_val * se_pred
-
-    # Определяем, какие точки попадают в интервал
-    in_bounds = (y >= ci_lower) & (y <= ci_upper)
-
-    fig, ax = plt.subplots(figsize=(8, 5))
-
-    # Нормальные точки (в интервале) – синие
-    ax.scatter(x[in_bounds], y[in_bounds], color='blue', s=60, alpha=0.7, label=_(TEXTS["normal_points"]))
-    # Выбросы (вне интервала) – красные
-    ax.scatter(x[~in_bounds], y[~in_bounds], color='red', s=80, alpha=0.8, label=_(TEXTS["outlier_points"]))
-
-    # Линия регрессии
-    x_line = np.linspace(min(x), max(x), 100)
-    y_line = slope * x_line + intercept
-    ax.plot(x_line, y_line, color='gray', linewidth=2, label=_(TEXTS["regression_line"]))
-
-    # Границы интервала предсказания
-    se_pred_line = se_reg * np.sqrt(1 + 1/n + (x_line - mean_x)**2 / np.sum((x - mean_x)**2))
-    ci_lower_line = y_line - t_val * se_pred_line
-    ci_upper_line = y_line + t_val * se_pred_line
-    ax.plot(x_line, ci_lower_line, 'r--', linewidth=1.5, label='Нижняя граница')
-    ax.plot(x_line, ci_upper_line, 'r--', linewidth=1.5, label='Верхняя граница')
-
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    ax.grid(True, linestyle='--', alpha=0.6)
-    ax.legend()
-    return fig
-
-# ---------- Отображение результатов ----------
 if st.session_state.analysis_done and os.path.exists("results.xlsx"):
     analyzer = st.session_state.analyzer
     tab1, tab2, tab3, tab4 = st.tabs(
@@ -271,12 +210,18 @@ if st.session_state.analysis_done and os.path.exists("results.xlsx"):
     )
 
     with tab1:
-        df = pd.read_excel("results.xlsx", sheet_name="Simplex")
-        st.dataframe(df, use_container_width=True)
+        try:
+            df = pd.read_excel("results.xlsx", sheet_name="Simplex")
+            st.dataframe(df, use_container_width=True)
+        except Exception:
+            st.warning(_(TEXTS["no_results"]))
 
     with tab2:
-        df = pd.read_excel("results.xlsx", sheet_name="Polynomials")
-        st.dataframe(df, use_container_width=True)
+        try:
+            df = pd.read_excel("results.xlsx", sheet_name="Polynomials")
+            st.dataframe(df, use_container_width=True)
+        except Exception:
+            st.warning(_(TEXTS["no_results"]))
 
     with tab3:
         if analyzer and hasattr(analyzer, 'corr_params_all') and analyzer.corr_params_all:
@@ -284,50 +229,24 @@ if st.session_state.analysis_done and os.path.exists("results.xlsx"):
             data_source = st.radio(_(TEXTS["data_source"]), [_(TEXTS["data_clean"]), _(TEXTS["data_all"])], index=0)
             if data_source == _(TEXTS["data_clean"]):
                 corr_dict = analyzer.corr_params_clean
-                scatter_dict = analyzer.corr_scatter_data_clean
             else:
                 corr_dict = analyzer.corr_params_all
-                scatter_dict = analyzer.corr_scatter_data_all
 
             if not corr_dict:
                 st.info(_(TEXTS["no_corr_data"]))
             else:
-                param_options = list(corr_dict.keys())
-                selected_param = st.selectbox(_(TEXTS["select_param"]), param_options, index=0)
-
-                if selected_param in corr_dict:
-                    res = corr_dict[selected_param]
-                    df_show = pd.DataFrame({
-                        _(TEXTS["parameter"]): [selected_param],
-                        _(TEXTS["n_label"]): [res["n"]],
-                        _(TEXTS["r_label"]): [res["r"]],
-                        _(TEXTS["p_value_label"]): [res["p"]],
+                rows = []
+                for param, res in corr_dict.items():
+                    rows.append({
+                        _(TEXTS["parameter"]): param,
+                        _(TEXTS["n_label"]): res["n"],
+                        _(TEXTS["r_label"]): res["r"],
+                        _(TEXTS["p_value_label"]): res["p"],
                     })
-                    st.dataframe(df_show, use_container_width=True)
-
-                    if selected_param in scatter_dict:
-                        data = scatter_dict[selected_param]
-                        x = data['x']
-                        y = data['y']
-                        if len(x) > 2:
-                            fig = plot_correlation_with_bounds(
-                                x, y,
-                                xlabel=_(TEXTS["r_rh"]) if "r_rh" in TEXTS else "R/H",
-                                ylabel=selected_param
-                            )
-                            if fig:
-                                st.pyplot(fig)
-                        else:
-                            st.info(_(TEXTS["not_enough_points"]))
-                else:
-                    st.info(_(TEXTS["data_not_found"]))
+                df_corr = pd.DataFrame(rows)
+                st.dataframe(df_corr, use_container_width=True)
         else:
             st.info(_(TEXTS["no_corr_data"]))
-
-        if os.path.exists("results.xlsx"):
-            df_pcorr = pd.read_excel("results.xlsx", sheet_name="PartialCorr")
-            st.subheader(_(TEXTS["corr_partial"]))
-            st.dataframe(df_pcorr, use_container_width=True)
 
     with tab4:
         if os.path.exists("plots"):
